@@ -16,7 +16,7 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
+    system(cmd);
     return true;
 }
 
@@ -58,6 +58,34 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    // Fork a new process
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return false;
+    }
+
+    if (pid == 0) {
+        // In child process, attempt to execute the command using execv.
+        execv(command[0], command);
+        // If execv returns, it failed. Print error and exit.
+        perror("execv");
+        _exit(1);  // Exit with non-zero status.
+    } else {
+        // In parent process, wait for the child process to finish.
+        int status;
+        if (waitpid(pid, &status, 0) == -1) {
+            perror("waitpid");
+            return false;
+        }
+
+        // The function returns true only if the process exited normally and with a status of zero.
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            return true;
+        } else {
+            return false;
+        }
+    }
 
     va_end(args);
 
@@ -92,6 +120,45 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *   The rest of the behaviour is same as do_exec()
  *
 */
+// Fork a new process.
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        return false;
+    }
+    
+    if (pid == 0) {
+        // In the child process, open the output file.
+        // O_WRONLY | O_CREAT | O_TRUNC: write only, create if not exists, and truncate if exists.
+        int fd = open(outputfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0) {
+            perror("open");
+            _exit(1);
+        }
+        // Redirect standard output (stdout) to the file.
+        if (dup2(fd, STDOUT_FILENO) < 0) {
+            perror("dup2");
+            close(fd);
+            _exit(1);
+        }
+        // File descriptor is no longer needed after redirection.
+        close(fd);
+        
+        // Execute the command.
+        execv(command[0], command);
+        // If execv() fails, print error (or consider omitting if you want silent failure) and exit.
+        perror("execv");
+        _exit(1);
+    } else {
+        // In the parent process, wait for the child to finish.
+        int status;
+        if (waitpid(pid, &status, 0) < 0) {
+            perror("waitpid");
+            return false;
+        }
+        // Return true only if the child exited normally with a 0 exit status.
+        return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
 
     va_end(args);
 
